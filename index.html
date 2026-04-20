@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>SWMaps CSV >>> DXF transformer</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+    :root { --gold: #D4AF37; --bg: #ff9a9e; --term-green: #0f0; --btn-pink: #ff00ff; }
+    body { 
+        font-family: 'Press Start 2P', cursive; font-size: 10px; line-height: 1.5;
+        background: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 30%, #a18cd1 100%);
+        background-attachment: fixed; color: #000; margin: 20px;
+    }
+    .container { background: rgba(255, 255, 255, 0.95); padding: 30px; border: 4px solid var(--gold); box-shadow: 15px 15px 0px rgba(0,0,0,0.2); max-width: 1200px; margin: auto; }
+    .manual-box { background: #000; color: #fff; padding: 25px; border: 2px solid var(--gold); margin-bottom: 25px; font-family: 'Courier New', monospace; font-size: 14px; }
+    .manual-box h3 { color: var(--btn-pink); font-family: 'Press Start 2P'; font-size: 12px; margin-top: 0; text-align: center; }
+    .dropzone { border: 3px dashed var(--gold); padding: 40px; text-align: center; margin: 10px 0; background: rgba(255,255,255,0.8); cursor: pointer; font-weight: bold; }
+    .status-msg { color: #28a745; font-weight: bold; text-align: center; margin: 15px 0; display: none; }
+    .download-zone { display: none; background: #111; padding: 20px; border: 3px solid var(--btn-pink); margin: 20px 0; gap: 15px; justify-content: center; }
+    .btn-download { background: var(--btn-pink); color: #fff; border: none; padding: 12px 20px; font-family: 'Press Start 2P'; font-size: 9px; cursor: pointer; box-shadow: 4px 4px 0px #880088; }
+    .config-layout { display: none; grid-template-columns: 1fr 400px; gap: 20px; margin: 20px 0; }
+    .layers-table-container { background: #000; border: 2px solid var(--gold); padding: 15px; color: #fff; max-height: 450px; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; font-family: monospace; font-size: 12px; }
+    th { border-bottom: 2px solid var(--gold); padding: 10px; text-align: left; color: var(--gold); }
+    td { padding: 10px; border-bottom: 1px solid #333; }
+    .preview-box { border: 4px solid var(--gold); background: #fff; padding: 15px; text-align: center; display: flex; flex-direction: column; align-items: center; }
+    #svg_preview { cursor: crosshair; background: #fff; border: 1px solid #ccc; margin-top: 10px; }
+    .draggable { cursor: move; font-family: Arial; font-weight: bold; }
+    .sliders { width: 100%; margin-top: 20px; background: #eee; padding: 15px; border: 1px solid #ccc; }
+    .slider-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-family: monospace; font-size: 12px; }
+    textarea { display: none; }
+</style>
+</head>
+<body>
+
+<div class="container">
+    <h1 style="text-align:center; font-size: 14px; border-bottom: 4px solid var(--gold); padding-bottom: 15px;">SWMaps CSV >>> DXF transformer</h1>
+
+    <div class="manual-box">
+        <h3>=== MANUÁL OVLÁDÁNÍ PROGRAMU ===</h3>
+        1. Nahrajte <b>_feature_points.csv</b> z SW Maps.<br><br>
+        2. Stáhněte <b>TXT pro ČÚZK</b> (ID - LAT - LON - VÝŠKA).<br><br>
+        3. ČÚZK: <b>WGS 84 BLh/DEG → S-JTSK + Bpv (-Y-XH)</b>.<br><br>
+        4. Nastavte parametry v editoru.<br><br>
+        5. Nahrajte TXT z ČÚZK a stáhněte <b>DXF</b>. (Hladiny: zam_id/zam_nazvy = šedá, zam_vysky = černá, zam_znacka_[vrstva] = barevná).
+    </div>
+
+    <div id="drop1" class="dropzone">▼ 1. KROK: NAHRÁT CSV Z SW MAPS ▼</div>
+    <div id="status1" class="status-msg">✓ CSV NAČTENO - BARVY PŘIŘAZENY</div>
+
+    <div id="download_section" class="download-zone">
+        <button class="btn-download" onclick="downloadTransformAndOpenCUZK()">STÁHNOUT TXT PRO ČÚZK</button>
+        <button class="btn-download" onclick="downloadMaster()">STÁHNOUT MASTER CSV</button>
+    </div>
+
+    <div id="config_area" class="config-layout">
+        <div>
+            <div class="layers-table-container">
+                <table>
+                    <thead><tr><th>VRSTVA</th><th>ZNAČKA</th><th>BARVA</th></tr></thead>
+                    <tbody id="layers_body"></tbody>
+                </table>
+            </div>
+            <div class="sliders">
+                <div class="slider-row"><span>VELIKOST ID/NÁZEV:</span><input type="range" min="0.1" max="1.5" step="0.05" value="0.25" id="size_id" oninput="updatePreview()"></div>
+                <div class="slider-row"><span>VELIKOST VÝŠKY:</span><input type="range" min="0.1" max="1.5" step="0.05" value="0.25" id="size_z" oninput="updatePreview()"></div>
+                <div class="slider-row"><span>VELIKOST ZNAČKY:</span><input type="range" min="0.05" max="1.0" step="0.05" value="0.2" id="size_mark" oninput="updatePreview()"></div>
+            </div>
+        </div>
+        <div class="preview-box">
+            <span style="font-size: 9px; margin-bottom: 5px;">Tažením (drag&drop) upravte pozici textů:</span>
+            <svg id="svg_preview" width="300" height="300" viewBox="0 0 10 10">
+                <g id="mark_render"></g>
+                <text id="drag_z" class="draggable" x="5.6" y="4.8" font-size="0.4">350.12</text>
+                <text id="drag_id" class="draggable" x="5.6" y="5.3" font-size="0.4">101</text>
+                <text id="drag_lyr" class="draggable" x="5.6" y="5.8" font-size="0.4">VRSTVA</text>
+            </svg>
+        </div>
+    </div>
+
+    <div id="drop2" class="dropzone">▼ 2. KROK: NAHRÁT TXT Z ČÚZK ▼</div>
+    <div id="status2" class="status-msg">✓ DXF PŘIPRAVENO</div>
+    <div id="final_download" class="download-zone">
+        <button class="btn-download" onclick="downloadDXF()" style="background: #00cc00;">💾 STÁHNOUT FINÁLNÍ DXF</button>
+    </div>
+
+    <textarea id="input1"></textarea>
+    <textarea id="input2"></textarea>
+</div>
+
+<script>
+let layerSettings = {}; 
+let pointDataTemp = {}; 
+let transformData = "";
+let masterCsvData = "";
+let finalDxfData = "";
+let offsets = { z: { dx: 0.6, dy: -0.2 }, id: { dx: 0.6, dy: 0.3 }, lyr: { dx: 0.6, dy: 0.8 } };
+
+const colorPalette = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF", "#FFA500", "#FFFFFF", "#808080", "#A52A2A"];
+const logicMap = [
+    { keys: ['strom', 'zelen', 'ker', 'les', 'trav'], color: '#00FF00' }, 
+    { keys: ['voda', 'tok', 'reka', 'potok', 'rybnik', 'hydrant', 'sacht'], color: '#00FFFF' }, 
+    { keys: ['cesta', 'chodnik', 'asfalt', 'komunikace', 'dlazba'], color: '#808080' }, 
+    { keys: ['budova', 'dum', 'objekt', 'zed', 'plot'], color: '#FFA500' }, 
+    { keys: ['elektro', 'sloup', 'osvetleni', 'kabel', 'nn', 'vn'], color: '#FF0000' }, 
+    { keys: ['hranice', 'parcela', 'meznik'], color: '#FF00FF' } 
+];
+const markTypes = ["CROSS", "CIRCLE", "SQUARE", "TRIANGLE", "X"];
+
+function run1() {
+    const raw = document.getElementById("input1").value;
+    const lines = raw.split(/\r?\n/).filter(l => l.trim() !== "");
+    if (lines.length < 2) return;
+    const sep = lines[0].includes(";") ? ";" : (lines[0].includes("\t") ? "\t" : ",");
+    const headers = lines[0].split(sep).map(s => s.trim());
+    const dataRows = lines.slice(1).map(r => r.split(sep));
+
+    let lonIdx = -1, latIdx = -1, altIdx = -1, lyrIdx = -1;
+    let minVariance = Infinity;
+
+    for (let i = 0; i < headers.length; i++) {
+        const h = headers[i].toLowerCase();
+        if (h === "layer" || h === "feature" || h.includes("vrstva")) {
+            lyrIdx = i;
+        }
+        const vals = dataRows.slice(0, 15).map(r => parseFloat((r[i]||"").replace(',','.'))).filter(n => !isNaN(n));
+        if (vals.length > 0) {
+            const avg = vals.reduce((a,b) => a+b)/vals.length;
+            const dec = (dataRows[0][i]||"").includes('.') ? (dataRows[0][i]||"").split('.')[1].length : 0;
+            if (avg > 12 && avg < 19 && dec >= 7) lonIdx = i;
+            if (avg > 48 && avg < 52 && dec >= 7) latIdx = i;
+            if (avg > 100 && avg < 2500) {
+                const variance = vals.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0);
+                if (variance < minVariance) { minVariance = variance; altIdx = i; }
+            }
+        }
+    }
+
+    let tLines = [], mLines = ["ID" + sep + lines[0]], detected = new Set();
+    dataRows.forEach((c, idx) => {
+        const ptId = (idx + 1).toString();
+        const lyr = (lyrIdx !== -1 && c[lyrIdx] ? c[lyrIdx] : "Zamer").trim().replace(/\s+/g, '_');
+        const lat = (latIdx !== -1 ? (c[latIdx]||"0").replace(',','.') : "0");
+        const lon = (lonIdx !== -1 ? (c[lonIdx]||"0").replace(',','.') : "0");
+        const alt = (altIdx !== -1 ? (c[altIdx]||"0").replace(',','.') : "0");
+        tLines.push(`${ptId} ${lat} ${lon} ${alt}`);
+        mLines.push(`${ptId}${sep}${c.join(sep)}`);
+        pointDataTemp[ptId] = { layer: lyr };
+        detected.add(lyr);
+    });
+    transformData = tLines.join("\r\n");
+    masterCsvData = mLines.join("\r\n");
+    assignLogicalLayers(Array.from(detected));
+    document.getElementById("status1").style.display = "block";
+    document.getElementById("download_section").style.display = "flex";
+    document.getElementById("config_area").style.display = "grid";
+}
+
+function assignLogicalLayers(layers) {
+    layerSettings = {};
+    let usedColors = new Set();
+    layers.forEach((l, idx) => {
+        let assignedColor = null;
+        const lowL = l.toLowerCase();
+        for (const rule of logicMap) {
+            if (rule.keys.some(k => lowL.includes(k))) {
+                if (!usedColors.has(rule.color)) { assignedColor = rule.color; break; }
+            }
+        }
+        if (assignedColor) {
+            layerSettings[l] = { mark: markTypes[idx % markTypes.length], color: assignedColor };
+            usedColors.add(assignedColor);
+        }
+    });
+    const remainingColors = colorPalette.filter(c => !usedColors.has(c));
+    let colorIdx = 0;
+    layers.forEach(l => {
+        if (!layerSettings[l]) {
+            const nextColor = remainingColors[colorIdx % remainingColors.length] || "#FFFFFF";
+            layerSettings[l] = { mark: markTypes[colorIdx % markTypes.length], color: nextColor };
+            colorIdx++;
+        }
+    });
+    renderTable();
+}
+
+function renderTable() {
+    const tbody = document.getElementById("layers_body");
+    tbody.innerHTML = "";
+    Object.keys(layerSettings).forEach(l => {
+        const s = layerSettings[l];
+        tbody.innerHTML += `<tr><td>${l}</td>
+            <td><select onchange="layerSettings['${l}'].mark=this.value;updatePreview();">
+                ${markTypes.map(m => `<option value="${m}" ${s.mark==m?'selected':''}>${m}</option>`).join('')}
+            </select></td>
+            <td><input type="color" value="${s.color}" onchange="layerSettings['${l}'].color=this.value;updatePreview();"></td></tr>`;
+    });
+    updatePreview();
+}
+
+function updatePreview() {
+    const first = Object.keys(layerSettings)[0];
+    const s = layerSettings[first] || {color: "#000", mark: "CROSS"};
+    const g = document.getElementById("mark_render");
+    const mSize = parseFloat(document.getElementById("size_mark").value) * 5;
+    const sId = document.getElementById("size_id").value;
+    const sZ = document.getElementById("size_z").value;
+    document.getElementById("drag_id").setAttribute("font-size", sId * 1.5);
+    document.getElementById("drag_z").setAttribute("font-size", sZ * 1.5);
+    document.getElementById("drag_lyr").setAttribute("font-size", sId * 1.5);
+    let d = "";
+    if(s.mark==="CIRCLE") d = `<circle cx="5" cy="5" r="${mSize/2}" stroke="${s.color}" fill="none" stroke-width="0.1"/>`;
+    if(s.mark==="CROSS") d = `<line x1="${5-mSize/2}" y1="5" x2="${5+mSize/2}" y2="5" stroke="${s.color}" stroke-width="0.1"/><line x1="5" y1="${5-mSize/2}" x2="5" y2="${5+mSize/2}" stroke="${s.color}" stroke-width="0.1"/>`;
+    if(s.mark==="X") d = `<line x1="${5-mSize/2}" y1="${5-mSize/2}" x2="${5+mSize/2}" y2="${5+mSize/2}" stroke="${s.color}" stroke-width="0.1"/><line x1="${5+mSize/2}" y1="${5-mSize/2}" x2="${5-mSize/2}" y2="${5+mSize/2}" stroke="${s.color}" stroke-width="0.1"/>`;
+    if(s.mark==="SQUARE") d = `<rect x="${5-mSize/2}" y="${5-mSize/2}" width="${mSize}" height="${mSize}" stroke="${s.color}" fill="none" stroke-width="0.1"/>`;
+    if(s.mark==="TRIANGLE") d = `<path d="M 5 ${5-mSize/2} L ${5-mSize/2} ${5+mSize/2} L ${5+mSize/2} ${5+mSize/2} Z" stroke="${s.color}" fill="none" stroke-width="0.1"/>`;
+    g.innerHTML = d;
+}
+
+function run2() {
+    const raw = document.getElementById("input2").value.trim();
+    if(!raw) return;
+    const lines = raw.split(/\r?\n/);
+    let pts = [];
+    lines.forEach(l => {
+        const p = l.trim().split(/\s+/);
+        if(p.length >= 4) pts.push({id: p[0], x: parseFloat(p[1]), y: parseFloat(p[2]), z: parseFloat(p[3])});
+    });
+    finalDxfData = generateDXF(pts);
+    document.getElementById("status2").style.display = "block";
+    document.getElementById("final_download").style.display = "flex";
+}
+
+function getDxfColor(hex) {
+    const map = { "#FF0000": 1, "#00FF00": 3, "#0000FF": 5, "#FFFF00": 2, "#FF00FF": 6, "#00FFFF": 4, "#FFFFFF": 7, "#FFA500": 30, "#808080": 8, "#A52A2A": 14 };
+    return map[hex.toUpperCase()] || 7;
+}
+
+function generateDXF(points) {
+    const fIdSize = document.getElementById("size_id").value;
+    const fZSize = document.getElementById("size_z").value;
+    const mS = parseFloat(document.getElementById("size_mark").value);
+    let dxf = "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n10\n";
+    Object.keys(layerSettings).forEach(l => {
+        dxf += `0\nLAYER\n2\nzam_znacka_${l}\n70\n64\n62\n${getDxfColor(layerSettings[l].color)}\n6\nCONTINUOUS\n`;
+    });
+    dxf += "0\nLAYER\n2\nzam_body\n70\n64\n62\n7\n6\nCONTINUOUS\n0\nLAYER\n2\nzam_id\n70\n64\n62\n8\n6\nCONTINUOUS\n0\nLAYER\n2\nzam_nazvy\n70\n64\n62\n8\n6\nCONTINUOUS\n0\nLAYER\n2\nzam_vysky\n70\n64\n62\n7\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+    points.forEach(p => {
+        const meta = pointDataTemp[p.id] || {layer: "DEFAULT"};
+        const s = layerSettings[meta.layer] || {color:"#FFFFFF", mark:"CROSS"};
+        const markLyr = `zam_znacka_${meta.layer}`;
+        dxf += `0\nPOINT\n8\nzam_body\n62\n256\n10\n${p.x}\n20\n${p.y}\n30\n${p.z}\n`;
+        if(s.mark === "CROSS") {
+            dxf += `0\nLINE\n8\n${markLyr}\n62\n256\n10\n${p.x-mS}\n20\n${p.y}\n30\n${p.z}\n11\n${p.x+mS}\n21\n${p.y}\n31\n${p.z}\n0\nLINE\n8\n${markLyr}\n62\n256\n10\n${p.x}\n20\n${p.y-mS}\n30\n${p.z}\n11\n${p.x}\n21\n${p.y+mS}\n31\n${p.z}\n`;
+        } else if(s.mark === "X") {
+            dxf += `0\nLINE\n8\n${markLyr}\n62\n256\n10\n${p.x-mS}\n20\n${p.y-mS}\n30\n${p.z}\n11\n${p.x+mS}\n21\n${p.y+mS}\n31\n${p.z}\n0\nLINE\n8\n${markLyr}\n62\n256\n10\n${p.x+mS}\n20\n${p.y-mS}\n30\n${p.z}\n11\n${p.x-mS}\n21\n${p.y+mS}\n31\n${p.z}\n`;
+        } else if(s.mark === "CIRCLE") {
+            dxf += `0\nCIRCLE\n8\n${markLyr}\n62\n256\n10\n${p.x}\n20\n${p.y}\n30\n${p.z}\n40\n${mS}\n`;
+        } else if(s.mark === "SQUARE") {
+            const co = [[-1,-1],[1,-1],[1,1],[-1,1],[-1,-1]];
+            for(let i=0; i<4; i++) dxf += `0\nLINE\n8\n${markLyr}\n62\n256\n10\n${p.x+co[i][0]*mS}\n20\n${p.y+co[i][1]*mS}\n30\n${p.z}\n11\n${p.x+co[i+1][0]*mS}\n21\n${p.y+co[i+1][1]*mS}\n31\n${p.z}\n`;
+        } else if(s.mark === "TRIANGLE") {
+            const co = [[0,1.2],[-1,-0.8],[1,-0.8],[0,1.2]];
+            for(let i=0; i<3; i++) dxf += `0\nLINE\n8\n${markLyr}\n62\n256\n10\n${p.x+co[i][0]*mS}\n20\n${p.y+co[i][1]*mS}\n30\n${p.z}\n11\n${p.x+co[i+1][0]*mS}\n21\n${p.y+co[i+1][1]*mS}\n31\n${p.z}\n`;
+        }
+        dxf += `0\nTEXT\n8\nzam_id\n62\n8\n10\n${p.x+offsets.id.dx}\n20\n${p.y-offsets.id.dy}\n30\n${p.z}\n40\n${fIdSize}\n1\n${p.id}\n0\nTEXT\n8\nzam_vysky\n62\n7\n10\n${p.x+offsets.z.dx}\n20\n${p.y-offsets.z.dy}\n30\n${p.z}\n40\n${fZSize}\n1\n${p.z.toFixed(2)}\n0\nTEXT\n8\nzam_nazvy\n62\n8\n10\n${p.x+offsets.lyr.dx}\n20\n${p.y-offsets.lyr.dy}\n30\n${p.z}\n40\n${fIdSize}\n1\n${meta.layer}\n`;
+    });
+    return dxf + "0\nENDSEC\n0\nEOF";
+}
+
+function downloadTransformAndOpenCUZK() { save(transformData, "cuzk_vstup.txt"); window.open("https://geoportal.cuzk.cz/Default.aspx?mode=TextMeta&text=wcts&menu=191"); }
+function downloadMaster() { save(masterCsvData, "master_klic.csv"); }
+function downloadDXF() { save(finalDxfData, "zamereni_logicke.dxf"); }
+function save(c, n) { const b = new Blob([c], {type: "text/plain"}); const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = n; a.click(); }
+function setupDrop(dId, aId, cb) {
+    const d = document.getElementById(dId), a = document.getElementById(aId);
+    d.ondragover = e => { e.preventDefault(); d.style.background = "#fff"; };
+    d.ondragleave = () => d.style.background = "";
+    d.ondrop = e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if(f){ const r = new FileReader(); r.onload = ev => { a.value = ev.target.result; cb(); }; r.readAsText(f); } };
+}
+setupDrop("drop1", "input1", run1); setupDrop("drop2", "input2", run2);
+
+const svg = document.getElementById('svg_preview');
+let sel = null;
+svg.onmousedown = e => { if (e.target.classList.contains('draggable')) sel = e.target; };
+window.onmousemove = e => {
+    if (sel) {
+        const rect = svg.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / (rect.width / 10), y = (e.clientY - rect.top) / (rect.height / 10);
+        sel.setAttribute("x", x); sel.setAttribute("y", y);
+        const type = sel.id.split('_')[1]; offsets[type].dx = x - 5; offsets[type].dy = y - 5;
+    }
+};
+window.onmouseup = () => sel = null;
+</script>
+</body>
+</html>
